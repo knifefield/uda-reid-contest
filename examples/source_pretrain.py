@@ -29,7 +29,7 @@ start_epoch = best_mAP = 0
 def get_data(name, data_dir, height, width, batch_size, workers, num_instances, iters=200):
     root = osp.join(data_dir, name)
 
-    dataset = datasets.init_dataset(name, root)
+    dataset = datasets.create(name, root)
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
@@ -63,7 +63,7 @@ def get_data(name, data_dir, height, width, batch_size, workers, num_instances, 
 def get_test_data(name, data_dir, height, width, batch_size, workers):
     root = osp.join(data_dir, name)
 
-    dataset = datasets.init_dataset(name, root)
+    dataset = datasets.create(name, root)
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
