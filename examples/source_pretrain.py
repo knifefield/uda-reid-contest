@@ -27,9 +27,7 @@ start_epoch = best_mAP = 0
 
 
 def get_data(name, data_dir, height, width, batch_size, workers, num_instances, iters=200):
-    root = osp.join(data_dir, name)
-
-    dataset = datasets.create(name, root)
+    dataset = datasets.create(name, data_dir)
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
@@ -60,10 +58,9 @@ def get_data(name, data_dir, height, width, batch_size, workers, num_instances, 
 
     return dataset, num_classes, train_loader
 
-def get_test_data(name, data_dir, height, width, batch_size, workers):
-    root = osp.join(data_dir, name)
 
-    dataset = datasets.create(name, root)
+def get_test_data(name, data_dir, height, width, batch_size, workers):
+    dataset = datasets.create(name, data_dir)
 
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
@@ -80,6 +77,7 @@ def get_test_data(name, data_dir, height, width, batch_size, workers):
         batch_size=batch_size, num_workers=workers,
         shuffle=False, pin_memory=True)
     return dataset, test_loader
+
 
 def main():
     args = parser.parse_args()
@@ -115,7 +113,7 @@ def main_worker(args):
                  args.width, args.batch_size, args.workers, args.num_instances, iters)
     dataset_validation, test_loader_target = \
         get_test_data(args.dataset_validation, args.data_dir, args.height,
-                 args.width, args.batch_size, args.workers)
+                      args.width, args.batch_size, args.workers)
 
     # Create model
     model = models.create(args.arch, dropout=args.dropout, num_classes=num_classes, circle=args.circle)
@@ -166,7 +164,8 @@ def main_worker(args):
                       train_iters=len(train_loader_source), print_freq=args.print_freq, balance=args.balance)
 
         if (epoch + 1) % args.eval_step == 0 or (epoch == args.epochs - 1):
-            _, mAP = evaluator.evaluate(test_loader_target, dataset_validation.query, dataset_validation.gallery, cmc_flag=True)
+            _, mAP = evaluator.evaluate(test_loader_target, dataset_validation.query, dataset_validation.gallery,
+                                        cmc_flag=True)
 
             is_best = mAP > best_mAP
             best_mAP = max(mAP, best_mAP)
