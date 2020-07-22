@@ -40,12 +40,10 @@ class MyResNet(nn.Module):
         resnet.layer3 = nn.Sequential(layer3_head, self.non_local, layer3_tail)
         resnet.layer4[0].conv2.stride = (1, 1)
         resnet.layer4[0].downsample[0].stride = (1, 1)
-        self.base = nn.Sequential(resnet.conv1, resnet.bn1, resnet.maxpool)  # no relu
+        self.base = nn.Sequential(
+            resnet.conv1, resnet.bn1, resnet.maxpool,  # no relu
+            resnet.layer1, resnet.layer2, resnet.layer3, resnet.layer4)
 
-        self.layer1 = resnet.layer1
-        self.layer2 = resnet.layer2
-        self.layer3 = resnet.layer3
-        self.layer4 = resnet.layer4
         self.gap = nn.AdaptiveAvgPool2d(1)
         self.gmp = nn.AdaptiveMaxPool2d(1)
 
@@ -86,11 +84,7 @@ class MyResNet(nn.Module):
 
     def forward(self, x, targets=None):
         x = self.base(x)
-        x = self.layer1(x)
-        x = self.layer2(x)
-        x = self.layer3(x)
-        x = self.layer4(x)
-
+        
         x_ap = self.gap(x)
         x_mp = self.gmp(x)
         x = x_ap + x_mp
