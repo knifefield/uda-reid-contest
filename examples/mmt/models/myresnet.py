@@ -84,7 +84,7 @@ class MyResNet(nn.Module):
 
     def forward(self, x, targets=None):
         x = self.base(x)
-        
+
         x_ap = self.gap(x)
         x_mp = self.gmp(x)
         x = x_ap + x_mp

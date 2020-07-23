@@ -12,32 +12,83 @@ from torch.utils.data import DataLoader
 
 from mmt import datasets
 from mmt import models
-from mmt.evaluators import Evaluator
-from mmt.utils.data import transforms as T
-from mmt.utils.data.preprocessor import Preprocessor
+from mmt.eval_reid import eval_func
+import torchvision.transforms as T
+from mmt.utils.data.dataset_loader import ImageDataset
 from mmt.utils.logging import Logger
 from mmt.utils.serialization import load_checkpoint, save_checkpoint, copy_state_dict
 
 
-def get_data(name, data_dir, height, width, batch_size, workers):
-    dataset = datasets.create(name, data_dir)
+def train_collate_fn(batch):
+    imgs, pids, _, _, = zip(*batch)
+    pids = torch.tensor(pids, dtype=torch.int64)
+    return torch.stack(imgs, dim=0), pids
 
+
+def val_collate_fn(batch):
+    imgs, pids, camids, im_path = zip(*batch)
+    return torch.stack(imgs, dim=0), pids, camids
+
+
+def get_data(name, data_dir, height, width, batch_size, workers):
     normalizer = T.Normalize(mean=[0.485, 0.456, 0.406],
                              std=[0.229, 0.224, 0.225])
+    test_transforms = T.Compose([
+        T.Resize((height, width), interpolation=3),
+        T.ToTensor(),
+        normalizer
+    ])
+    dataset = datasets.create(name, data_dir)
 
-    test_transformer = T.Compose([
-             T.Resize((height, width), interpolation=3),
-             T.ToTensor(),
-             normalizer
-         ])
+    query_set = ImageDataset(dataset.query, test_transforms)
+    gallery_set = ImageDataset(dataset.gallery, test_transforms)
 
-    test_loader = DataLoader(
-        Preprocessor(list(set(dataset.query) | set(dataset.gallery)),
-                     root=dataset.images_dir, transform=test_transformer),
-        batch_size=batch_size, num_workers=workers,
-        shuffle=False, pin_memory=True)
+    query_loader = DataLoader(
+        query_set, batch_size=batch_size, shuffle=False,
+        collate_fn=val_collate_fn, num_workers=workers, pin_memory=True
+    )
+    gallery_loader = DataLoader(
+        gallery_set, batch_size=batch_size, shuffle=False,
+        collate_fn=val_collate_fn, num_workers=workers, pin_memory=True
+    )
 
-    return dataset, test_loader
+    return query_loader, gallery_loader
+
+
+def fliplr(img):
+    '''flip horizontal'''
+    inv_idx = torch.arange(img.size(3)-1,-1,-1).long()  # N x C x H x W
+    img_flip = img.index_select(3,inv_idx)
+    return img_flip
+
+
+def test(model, test_loader):
+    model.eval()
+    feature = []
+    cams = []
+    pids = []
+    with torch.no_grad():
+        for data, target, cam in test_loader:
+            n, c, h, w = data.size()
+            ff = torch.FloatTensor(n, 2048).zero_().to('cuda')
+            for i in range(2):
+                if i == 1:
+                    data = fliplr(data)
+                img = data.to('cuda')
+                outputs = model(img)
+                f = outputs
+                ff = ff + f
+            # norm feature
+            fnorm = torch.norm(ff, p=2, dim=1, keepdim=True)
+            ff = ff.div(fnorm.expand_as(ff))
+            feature.append(ff)
+            cams.extend(cam)
+            pids.extend(target)
+
+    feature = torch.cat(feature, dim=0).cpu().numpy()
+    pids = np.array(pids)
+    cams = np.array(cams)
+    return feature, pids, cams
 
 
 def main():
@@ -60,7 +111,7 @@ def main_worker(args):
     print("==========\nArgs:{}\n==========".format(args))
 
     # Create data loaders
-    dataset_target, test_loader_target = \
+    query_loader, gallery_loader = \
         get_data(args.dataset_target, args.data_dir, args.height,
                  args.width, args.batch_size, args.workers)
 
@@ -77,10 +128,26 @@ def main_worker(args):
     print("=> Checkpoint of epoch {}  best mAP {:.1%}".format(start_epoch, best_mAP))
 
     # Evaluator
-    evaluator = Evaluator(model)
-    print("Test on the target domain of {}:".format(args.dataset_target))
-    evaluator.evaluate(test_loader_target, dataset_target.query, dataset_target.gallery, cmc_flag=True, rerank=args.rerank)
+    q_f, q_id, q_cam = test(model, query_loader)
+    g_f, g_id, g_cam = test(model, gallery_loader)
+
+    q_g_dist = np.dot(q_f, np.transpose(g_f))
+    q_g_dist = 2. - 2 * q_g_dist  # change the cosine similarity metric to euclidean similarity metric
+    all_cmc, mAP = eval_func(q_g_dist, q_id, g_id, q_cam, g_cam)
+    all_cmc = all_cmc * 100
+    print('rank-1: {:.4f} rank-5: {:.4f} rank-10: {:.4f} rank-20: {:.4f} rank-50: {:.4f} mAP: {:.4f}'.format(all_cmc[0],
+                                                                                                             all_cmc[4],
+                                                                                                             all_cmc[9],
+                                                                                                             all_cmc[
+                                                                                                                 19],
+                                                                                                             all_cmc[
+                                                                                                                 49],
+                                                                                                             mAP * 100))
+
+    indices = np.argsort(q_g_dist, axis=1)
+    np.savetxt("answer.txt", indices[:, :100], fmt="%04d")
     return
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Testing the model")
