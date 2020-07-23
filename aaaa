@@ -1,0 +1,5 @@
+sh scripts/pretrain.sh  personX target_training myresnet 1
+sh scripts/pretrain.sh  personX target_training myresnet 2
+#sh scripts/train_mmt_kmeans.sh personX target_training myresnet  1000
+#sh scripts/train_mmt_kmeans.sh personX target_training myresnet  500
+sh scripts/train_mmt_dbscan.sh personX target_training  myresnet
